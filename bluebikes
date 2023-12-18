@@ -1,0 +1,99 @@
+import streamlit as st
+import pandas as pd
+import pydeck as pdk
+import matplotlib.pyplot as plt
+import os
+
+# Function with default parameter, returns multiple values, and called in multiple places
+def process_data(data, column='District', default_district='All'):
+    """Process data based on the district and calculate average docks."""
+    filtered_data = data[data[column] == default_district] if default_district != 'All' else data
+    average_docks = filtered_data["Total docks"].mean() if "Total docks" in filtered_data else 0
+    return filtered_data, average_docks
+
+# Load data from CSV and Excel
+boston_data_csv = pd.read_csv('current_bluebikes_stations.csv', skiprows=[0], header=0, usecols=range(8))
+boston_data_excel = pd.read_excel('boston_data.xlsx')
+
+# Streamlit app setup with enhanced UI
+st.markdown("<h1 style='color: blue;'>Boston Blue Bikes Data Explorer</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='color: blue;'>Explore the usage patterns of Blue Bikes in Boston.</h3>", unsafe_allow_html=True)
+
+# Sidebar for user input from CSV data
+column_index = 4
+show_all = st.sidebar.checkbox("Show all districts on map", value=True)  # Default to True
+
+if not show_all:
+    districts = boston_data_csv.iloc[:, column_index].unique()
+    district = st.sidebar.selectbox("Select a District", districts)
+    filtered_data, avg_docks = process_data(boston_data_csv, column=boston_data_csv.columns[column_index], default_district=district)
+else:
+    filtered_data, avg_docks = process_data(boston_data_csv)
+
+# Displaying the average number of docks using list comprehension
+avg_docks_display = [f"Average number of docks: {avg_docks:.2f}"]  # List comprehension
+st.write(avg_docks_display[0])
+
+# Map Visualization
+st.subheader("Map of Bike Stations")
+tooltip = {
+    "html": "<b>Station Name:</b> {Name}<br><b>District:</b> {District}<br><b>Deployment Year:</b> {Deployment Year}<br><b>Number of Docks:</b> {Total docks}",
+    "style": {"backgroundColor": "steelblue", "color": "white"}
+}
+st.pydeck_chart(pdk.Deck(
+    map_style='mapbox://styles/mapbox/streets-v11',
+    initial_view_state=pdk.ViewState(latitude=42.3601, longitude=-71.0589, zoom=12, pitch=50),
+    layers=[pdk.Layer('ScatterplotLayer', data=filtered_data, get_position='[Longitude, Latitude]', get_color='[200, 30, 0, 160]', get_radius=100, pickable=True)],
+    tooltip=tooltip
+))
+
+# Pie Chart Visualization
+st.header("Deployment Year Distribution")
+deployment_year_data = boston_data_excel['Deployment Year'].value_counts()
+fig, ax = plt.subplots()
+ax.pie(deployment_year_data, labels=deployment_year_data.index, autopct='%1.1f%%', startangle=90)
+ax.axis('equal')
+plt.tight_layout()
+st.pyplot(fig)
+
+# Bar Chart Visualization
+st.header("Bike Stations Analysis")
+station_count_all_districts = boston_data_csv.groupby(boston_data_csv.columns[column_index])["Number"].nunique()
+st.bar_chart(station_count_all_districts)
+
+# New Line Chart Visualization - Average Number of Docks per Station per District
+st.header("Average Docks per Station per District")
+avg_docks_per_district = boston_data_csv.groupby(boston_data_csv.columns[column_index])["Total docks"].mean()
+fig, ax = plt.subplots()
+ax.plot(avg_docks_per_district.index, avg_docks_per_district.values, marker='o')
+ax.set_xlabel('District')
+ax.set_ylabel('Average Number of Docks')
+ax.set_title('Average Number of Docks per Station per District')
+plt.xticks(rotation=45)
+plt.tight_layout()
+st.pyplot(fig)
+
+# Feedback section
+st.header("Feedback")
+feedback_text = st.text_area("Share your feedback or suggestions:")
+rating = st.slider("Rate (1 = Not Useful, 5 = Very Useful)", 1, 5)
+
+if st.button("Submit Feedback"):
+    feedback_file = 'feedback.csv'
+
+    # Check if the feedback file exists and read it
+    if os.path.exists(feedback_file):
+        feedback_data = pd.read_csv(feedback_file)
+    else:
+        # Create a new DataFrame if the file does not exist
+        feedback_data = pd.DataFrame(columns=['Feedback', 'Rating'])
+
+    # Ensure feedback_data is a DataFrame
+    if isinstance(feedback_data, pd.DataFrame):
+        new_feedback = pd.DataFrame({'Feedback': [feedback_text], 'Rating': [rating]})
+        feedback_data = pd.concat([feedback_data, new_feedback], ignore_index=True)
+        feedback_data.to_csv(feedback_file, index=False)
+        st.success("Thank you for your feedback!")
+    else:
+        st.error("An error occurred while processing the feedback.")
+
